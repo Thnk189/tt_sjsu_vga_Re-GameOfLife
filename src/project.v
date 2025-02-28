@@ -46,7 +46,7 @@ assign uio_oe  = 0;
 // Suppress unused signals warning
 wire _unused_ok = &{ena, ui_in, uio_in};
 
-hvsync_generator hvsync_gen(
+module hvsync_generator hvsync_gen(
   .clk(clk),
   .reset(~rst_n),
   .hsync(hsync),
