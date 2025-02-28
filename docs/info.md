@@ -9,11 +9,19 @@ You can also include images in this folder and reference them in the markdown. E
 
 ## How it works
 
-Explain how your project works
+This is a Game Of Life Remake using verilog code and VGA displays. This has a new spin as it will have presets as well as new rules. The base game of life rules are 
+1. Any live cell with fewer than two live neighbours dies, as if by underpopulation.
+2. Any live cell with two or three live neighbours lives on to the next generation.
+3. Any live cell with more than three live neighbours dies, as if by overpopulation.
+4. Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction
+
+For my bonus rules,
+5. Red Cells: Dangerous Cells that are in one of the prests that kill the surrounding cells but if there are no cells around it, it dies, it does not reproduce
+6.
 
 ## How to test
 
-Explain how to use your project
+connect the chip to vga and watch the magic roll baby
 
 ## External hardware
 
