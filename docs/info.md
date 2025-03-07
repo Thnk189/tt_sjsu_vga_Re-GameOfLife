@@ -16,7 +16,7 @@ This is a Game Of Life Remake using verilog code and VGA displays. This has a ne
 4. Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction
 
 For my bonus rules,
-5. Red Cells: Dangerous Cells that are in one of the prests that kill the surrounding cells but if there are no cells around it, it dies, it does not reproduce
+5.Sick cells infect other live cells, this is in pinout 2 setting
 6.
 
 ## How to test
