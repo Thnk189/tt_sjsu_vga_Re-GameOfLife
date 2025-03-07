@@ -62,7 +62,7 @@ assign frame_active = (pix_x >= 64 && pix_x < 640-64 && pix_y >= 112 && pix_y < 
 
 // look up into the 8x8 icon bitmap for live cells
 wire icon_pixel;
-assign icon_pixel = icon[pix_y[2:0]][pix_x[2:0]];
+assign icon_pixel = icon1[pix_y[2:0]][pix_x[2:0]];
 
 // compute index into board state
 wire [10:0] cell_index;
@@ -300,18 +300,58 @@ always @(posedge clk) begin
   end
 end
 
-// --------------- ICON FOR LIVE CELL --------------------
-
-reg [7:0] icon[0:7];
+// --------------- ICON FOR LETTER "S" --------------------
+// --------------- ICON FOR LETTER "S" --------------------
+reg [7:0] icon1[0:7];
 initial begin
-  icon[0] = 8'b00000000;
-  icon[1] = 8'b00111100;
-  icon[2] = 8'b01111110;
-  icon[3] = 8'b01111110;
-  icon[4] = 8'b01111110;
-  icon[5] = 8'b01111110;
-  icon[6] = 8'b00111100;
-  icon[7] = 8'b00000000;
+  icon1[0] = 8'b00111100;  //     #### (no change needed)
+  icon1[1] = 8'b01111110;  //    ######
+  icon1[2] = 8'b00000110;  //    ##
+  icon1[3] = 8'b00011110;  //     ####
+  icon1[4] = 8'b00111100;  //      ###
+  icon1[5] = 8'b01100000;  //        ##
+  icon1[6] = 8'b01111110;  //    ######
+  icon1[7] = 8'b00111100;  //     ####
 end
+
+// --------------- ICON FOR LETTER "J" --------------------
+reg [7:0] icon2[0:7];
+initial begin
+  icon2[0] = 8'b01111100;  // ######
+  icon2[1] = 8'b00010000;  //     #
+  icon2[2] = 8'b00010000;  //     #
+  icon2[3] = 8'b00010000;  //     #
+  icon2[4] = 8'b00010010;  // #   #
+  icon2[5] = 8'b00010010;  // #   #
+  icon2[6] = 8'b00011100;  //  ####
+  icon2[7] = 8'b00000000;  // (Empty)
+end
+// ----------------- PIXEL LOGIC FOR SELECTING ICON -------------------
+// Alternate between "S" (icon1) and "J" (icon2) based on the cell index (cell_index[0])
+wire icon_pixel;
+assign icon_pixel = (board_state[cell_index] == 1) ? 
+                    (cell_index[0] ? icon2[pix_y[2:0]][pix_x[2:0]] : icon1[pix_y[2:0]][pix_x[2:0]]) : 0; // Alternate based on cell index
+
+// ----------------- RGB SIGNAL GENERATION --------------------
+// For yellow color: set red and green to max, blue to 0
+assign R = (video_active & frame_active) ? {board_state[cell_index] & icon_pixel1, 1'b1} : 2'b11;  // Red
+assign G = (video_active & frame_active) ? {board_state[cell_index] & icon_pixel1, 1'b1} : 2'b11;  // Green
+assign B = 2'b00;  // Blue = 0, so it's yellow when combined with red and green
+
+
+// ----------------- VGA OUTPUT SIGNAL (uio_out) --------------------
+// Horizontal Flip for Column Index
+wire [2:0] flipped_pix_x;
+assign flipped_pix_x = {pix_x[0], pix_x[1], pix_x[2]};  // Reverse the bit order of pix_x
+
+// look up into the 8x8 icon bitmap for live cells
+wire icon_pixel1;
+assign icon_pixel1 = icon1[pix_y[2:0]][flipped_pix_x];  // Use flipped column index
+
+wire icon_pixel2;
+assign icon_pixel2 = icon2[pix_y[2:0]][flipped_pix_x];  // Use flipped column index
+// Instead of 'video_out', use 'uo_out' (the actual VGA output) and pack the RGB signals
+assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};  // Assuming uo_out uses this format
+
 
 endmodule
