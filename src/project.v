@@ -328,7 +328,7 @@ initial begin
 end
 // ----------------- PIXEL LOGIC FOR SELECTING ICON -------------------
 // Alternate between "S" (icon1) and "J" (icon2) based on the cell index (cell_index[0])
-wire icon_pixel;
+  
 assign icon_pixel = (board_state[cell_index] == 1) ? 
                     (cell_index[0] ? icon2[pix_y[2:0]][pix_x[2:0]] : icon1[pix_y[2:0]][pix_x[2:0]]) : 0; // Alternate based on cell index
 
