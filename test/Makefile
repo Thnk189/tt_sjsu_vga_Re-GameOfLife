@@ -5,7 +5,7 @@
 SIM ?= icarus
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v, hvsync_generator.v
+PROJECT_SOURCES = project.v hvsync_generator.v
 
 ifneq ($(GATES),yes)
 
@@ -34,7 +34,7 @@ endif
 COMPILE_ARGS 		+= -I$(SRC_DIR)
 
 # Include the testbench sources:
-VERILOG_SOURCES += $(PWD)/tb.v
+VERILOG_SOURCES += $(PWD)/tb.vcd
 TOPLEVEL = tb
 
 # MODULE is the basename of the Python test file
