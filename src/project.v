@@ -353,5 +353,6 @@ assign icon_pixel2 = icon2[pix_y[2:0]][flipped_pix_x];  // Use flipped column in
 // Instead of 'video_out', use 'uo_out' (the actual VGA output) and pack the RGB signals
 assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};  // Assuming uo_out uses this format
 
+// goal for later idea with this is to have SJSU branded stuff so only can hope the best!
 
 endmodule
