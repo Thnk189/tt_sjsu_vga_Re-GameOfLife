@@ -1,358 +1,413 @@
-/*
- * Copyright (c) 2024 Ciro Cattuto
- * based on the VGA examples by Uri Shaked
- * and on tt07-conway-term (https://github.com/ccattuto/tt07-conway-term)
- * SPDX-License-Identifier: Apache-2.0
- */
-
 `default_nettype none
 
-module tt_um_vga_regol(
-  input  wire [7:0] ui_in,    // Dedicated inputs
-  output wire [7:0] uo_out,   // Dedicated outputs
-  input  wire [7:0] uio_in,   // IOs: Input path
-  output wire [7:0] uio_out,  // IOs: Output path
-  output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
-  input  wire       ena,      // always 1 when the design is powered, so you can ignore it
-  input  wire       clk,      // clock
-  input  wire       rst_n     // reset_n - low to reset
+module tt_um_vga_regol (
+    input  wire [7:0] ui_in,    // Dedicated inputs
+    output wire [7:0] uo_out,   // Dedicated outputs
+    input  wire [7:0] uio_in,   // IOs: Input path
+    output wire [7:0] uio_out,  // IOs: Output path
+    output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
+    input  wire       ena,      // always 1 when the design is powered, so you can ignore it
+    input  wire       clk,      // clock
+    input  wire       rst_n     // reset_n - low to reset
 );
 
-// VGA signals
-wire hsync;
-wire vsync;
-wire [1:0] R;
-wire [1:0] G;
-wire [1:0] B;
-wire video_active;
-wire [9:0] pix_x;
-wire [9:0] pix_y;
+  assign uio_out = 0;
+  assign uio_oe  = 0;
+  wire _unused_ok = &{ena, ui_in[7], ui_in[4:0], uio_in};
 
-// stops/starts simulation
-wire running;
-assign running = ~ui_in[0];
+  wire hsync;
+  wire vsync;
+  reg [1:0] R;
+  reg [1:0] G;
+  reg [1:0] B;
+  wire video_active;
+  wire [9:0] pix_x;
+  wire [9:0] pix_y;
 
-// randomizes board state
-wire randomize;
-assign randomize = ui_in[1];
+  assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
 
-// TinyVGA PMOD
-assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
+  hvsync_generator vga_sync_gen (
+      .clk(clk),
+      .reset(~rst_n),
+      .hsync(hsync),
+      .vsync(vsync),
+      .display_on(video_active),
+      .hpos(pix_x),
+      .vpos(pix_y)
+  );
 
-// Unused outputs assigned to 0.
-assign uio_out = 0;
-assign uio_oe  = 0;
+  wire inp_up, inp_down;
+  gamepad_pmod_single driver (
+      .rst_n(rst_n),
+      .clk(clk),
+      .pmod_data(ui_in[6]),
+      .pmod_clk(ui_in[5]),
+      .pmod_latch(ui_in[4]),
+      .up(inp_up),
+      .down(inp_down)
+  );
 
-// Suppress unused signals warning
-wire _unused_ok = &{ena, ui_in, uio_in};
-
-hvsync_generator hvsync_gen(
-  .clk(clk),
-  .reset(~rst_n),
-  .hsync(hsync),
-  .vsync(vsync),
-  .display_on(video_active),
-  .hpos(pix_x),
-  .vpos(pix_y)
-);
-
-// high when the pixel belongs to the simulation rectangle
-wire frame_active;
-assign frame_active = (pix_x >= 64 && pix_x < 640-64 && pix_y >= 112 && pix_y < 480-112) ? 1 : 0;
-
-// look up into the 8x8 icon bitmap for live cells
-wire icon_pixel;
-assign icon_pixel = icon1[pix_y[2:0]][pix_x[2:0]];
-
-// compute index into board state
-wire [10:0] cell_index;
-assign cell_index = (pix_y[7:3] << 6) | pix_x[8:3];
-
-// generate RGB signals
-assign R = (video_active & frame_active) ? {board_state[cell_index] & icon_pixel, 1'b1} : 2'b00;
-assign G = (video_active & frame_active) ? {board_state[cell_index] & icon_pixel, 1'b1} : 2'b00;
-assign B = 2'b01;
-  
-// clock
-localparam CLOCK_FREQ = 24000000;
-
-// reset
-wire boot_reset;
-assign boot_reset = ~rst_n;
+  reg [9:0] rect_y;
+  localparam [9:0] RECT_X_START = 100;
+  localparam [9:0] RECT_Y_START = 100;
+  localparam [9:0] RECT_WIDTH   = 20;
+  localparam [9:0] RECT_HEIGHT  = 100;
 
 
-// ----------------- SIMULATION PARAMS -------------------------
+localparam MIN_Y = 10;   // Custom lower boundary
+localparam MAX_Y = 400;  // Custom upper boundary
+localparam STEP_SIZE = 100; // Smaller movement steps
 
-localparam logWIDTH = 6, logHEIGHT = 5;         // 64x32 board
-localparam UPDATE_INTERVAL = CLOCK_FREQ / 10;   // 5 Hz simulation update
-
-localparam WIDTH = 2 ** logWIDTH;
-localparam HEIGHT = 2 ** logHEIGHT;
-localparam BOARD_SIZE = WIDTH * HEIGHT;
-
-reg board_state [0:BOARD_SIZE-1];         // current state of the simulation
-reg board_state_next [0:BOARD_SIZE-1];    // next state of the simulation
-
-
-// ----------------- SIMULATION CONTROL LOGIC --------------------
-
-localparam ACTION_IDLE = 0, ACTION_UPDATE = 1, ACTION_COPY = 2, ACTION_INIT = 3;
-reg [2:0] action;
-reg action_init_complete, action_update_complete, action_copy_complete;
-
-reg [31:0] timer;
+// Clock Divider for Smooth Paddle Movement
+reg [19:0] clk_divider;  // 20-bit counter for clock division
+reg slow_clk;  // Slower clock for movement
 
 always @(posedge clk) begin
-  if (boot_reset) begin
-    action <= ACTION_INIT;
-    timer <= 0;
-  end else begin
-    case (action)
-      // idle loop 
-      ACTION_IDLE: begin
-        if (running) begin // timer-based update trigger
-          if (timer < UPDATE_INTERVAL) begin
-            timer <= timer + 1;
-          end else if (vsync) begin
-            timer <= 0;
-            action <= (~randomize) ? ACTION_UPDATE : ACTION_INIT;
-          end
-        end
-      end
-
-      // COPY -> (-> IDLE)
-      ACTION_COPY: begin
-        if (action_copy_complete)
-          action <= ACTION_IDLE;
-      end
-
-      // UPDATE -> COPY (-> IDLE)
-      ACTION_UPDATE: begin
-        if (action_update_complete)
-          action <= ACTION_COPY;
-      end
-
-      // RND -> IDLE
-      ACTION_INIT: begin
-        if (action_init_complete)
-          action <= ACTION_IDLE;
-      end
-
-      default: begin
-        action <= ACTION_IDLE;
-      end
-    endcase
-  end
+    clk_divider <= clk_divider + 1;
+    slow_clk <= clk_divider[15];  // Adjust this bit to change speed
 end
 
-
-// ----------------- ACTION: RANDOMIZE SIMULATION STATE --------------------
-
-reg [logWIDTH+logHEIGHT-1:0] index2;
-
-always @(posedge clk) begin
-  if (boot_reset) begin
-    action_init_complete <= 0;
-    index2 <= 0;
-  end else if (action == ACTION_INIT && !action_init_complete) begin
-    board_state[index2] <= rng;
-    if (index2 < BOARD_SIZE - 1) begin
-      index2 <= index2 + 1;
-    end else  begin
-      index2 <= 0;
-      action_init_complete <= 1;
-    end
-  end else begin
-    action_init_complete <= 0;
-  end
-end
-
-
-// ----------------- ACTION: COMPUTE SIMULATION'S NEXT STATE --------------------
-
-reg [logWIDTH+logHEIGHT-1:0] index3;    // index of cell being updated
-wire [logWIDTH-1:0] cell_x;             // x-coordinate (column) of cell being updated
-wire [logHEIGHT-1:0] cell_y;            // y coordinate (row) of cell being updated
-assign cell_x = index3[logWIDTH-1:0];
-assign cell_y = index3[logWIDTH+logHEIGHT-1:logWIDTH];
-
-reg [3:0] neigh_index;                  // index of neighboring cell (0 to 7)
-reg [3:0] num_neighbors;                // number of neighbors of current cell
-
-localparam HEIGHT_MASK = {logHEIGHT{1'b1}};
-localparam WIDTH_MASK = {logWIDTH{1'b1}};
-
-always @(posedge clk) begin
-  if (boot_reset) begin
-    action_update_complete <= 0;
-    index3 <= 0;
-    neigh_index <= 0;
-    num_neighbors <= 0;
-  end else if (action == ACTION_UPDATE && !action_update_complete) begin
-    // loop over the 8 neighbors of the current cell
-    case (neigh_index)
-      0: begin // (-1, +1)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 1) & HEIGHT_MASK) << logWIDTH | ((cell_x - 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
-
-      1: begin // (0, +1)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 1) & HEIGHT_MASK) << logWIDTH | ((cell_x + 0) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1; 
-      end
-
-      2: begin // (+1, +1)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 1) & HEIGHT_MASK) << logWIDTH | ((cell_x + 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
-
-      3: begin // (-1, 0)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 0) & HEIGHT_MASK) << logWIDTH | ((cell_x - 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
-
-      4: begin // (+1, 0)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 0) & HEIGHT_MASK) << logWIDTH | ((cell_x + 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
-
-      5: begin // (-1, -1)
-        num_neighbors <= num_neighbors + board_state[((cell_y - 1) & HEIGHT_MASK) << logWIDTH | ((cell_x - 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
-
-      6: begin // (0, -1)
-        num_neighbors <= num_neighbors + board_state[((cell_y - 1) & HEIGHT_MASK) << logWIDTH | ((cell_x + 0) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
-
-      7: begin // (+1, -1)
-        num_neighbors <= num_neighbors + board_state[((cell_y - 1) & HEIGHT_MASK) << logWIDTH | ((cell_x + 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
-
-      // this state (neigh_index = 8) is used to compute the new state of the current cell
-      // according to the rules of Conway's Game of Life
-      8: begin
-        board_state_next[index3] <= (board_state[index3] && (num_neighbors == 2)) | (num_neighbors == 3);
-
-        neigh_index <= 0;
-        num_neighbors <= 0;
-
-        // advance to next cell to be updated, or terminate
-        if (index3 < BOARD_SIZE - 1) begin
-          index3 <= index3 + 1;
-        end else begin
-          index3 <= 0;
-          action_update_complete <= 1;
-        end
-      end
-
-      default: begin
-        neigh_index <= 0;
-      end
-    endcase
-  end else begin
-    action_update_complete <= 0;
-  end 
-end
-
-
-// --------------- ACTION: COPY NEW SIMULATION STATE OVER OLD ONE --------------------
-
-reg [logWIDTH+logHEIGHT-1:0] index4;
-
-always @(posedge clk) begin
-  if (boot_reset) begin
-    action_copy_complete <= 0;
-    index4 <= 0;
-  end else if (action == ACTION_COPY && !action_copy_complete) begin
-    board_state[index4] <= board_state_next[index4];
-    if (index4 < BOARD_SIZE - 1) begin
-      index4 <= index4 + 1;
+// Paddle Position Logic (Step size = 1)
+always @(posedge slow_clk) begin
+    if (~rst_n) begin
+        rect_y <= MIN_Y;  // Start at the minimum boundary
     end else begin
-      index4 <= 0;
-      action_copy_complete <= 1;
+        if (inp_up && rect_y > MIN_Y)  
+            rect_y <= rect_y - 1;  // Move up by 1
+        if (inp_down && rect_y < MAX_Y)  
+            rect_y <= rect_y + 1;  // Move down by 1
     end
-  end else begin
-    action_copy_complete <= 0;
+end
+
+  always @(posedge clk) begin
+    if (~rst_n) begin
+      R <= 0;
+      G <= 0;
+      B <= 0;
+    end else begin
+      if (video_active) begin
+        if (pix_x >= RECT_X_START && pix_x < (RECT_X_START + RECT_WIDTH) &&
+            pix_y >= rect_y && pix_y < (rect_y + RECT_HEIGHT)) begin
+          {R, G, B} <= 6'b111111; // White rectangle
+        end else begin
+          {R, G, B} <= 6'b000000; // Black background
+        end
+      end else begin
+        {R, G, B} <= 0;
+      end
+    end
   end
-end
+
+endmodule
 
 
-// --------------- RNG --------------------
+/*
+ * Copyright (c) 2025 Pat Deegan, https://psychogenic.com
+ * SPDX-License-Identifier: Apache-2.0
+ * Version: 1.0.0
+ *
+ * Interfacing code for the Gamepad Pmod from Psycogenic Technologies,
+ * designed for Tiny Tapeout.
+ *
+ * There are two high-level modules that most users will be interested in:
+ * - gamepad_pmod_single: for a single controller;
+ * - gamepad_pmod_dual: for two controllers.
+ * 
+ * There are also two lower-level modules that you can use if you want to
+ * handle the interfacing yourself:
+ * - gamepad_pmod_driver: interfaces with the Pmod and provides the raw data;
+ * - gamepad_pmod_decoder: decodes the raw data into button states.
+ *
+ * The docs, schematics, PCB files, and firmware code for the Gamepad Pmod
+ * are available at https://github.com/psychogenic/gamepad-pmod.
+ */
 
-reg [15:0] lfsr_reg; // Internal LFSR register
-wire feedback;
-wire rng;
+/**
+ * gamepad_pmod_driver -- Serial interface for the Gamepad Pmod.
+ *
+ * This module reads raw data from the Gamepad Pmod *serially*
+ * and stores it in a shift register. When the latch signal is received, 
+ * the data is transferred into `data_reg` for further processing.
+ *
+ * Functionality:
+ *   - Synchronizes the `pmod_data`, `pmod_clk`, and `pmod_latch` signals 
+ *     to the system clock domain.
+ *   - Captures serial data on each falling edge of `pmod_clk`.
+ *   - Transfers the shifted data into `data_reg` when `pmod_latch` goes low.
+ *
+ * Parameters:
+ *   - `BIT_WIDTH`: Defines the width of `data_reg` (default: 24 bits).
+ *
+ * Inputs:
+ *   - `rst_n`: Active-low reset.
+ *   - `clk`: System clock.
+ *   - `pmod_data`: Serial data input from the Pmod.
+ *   - `pmod_clk`: Serial clock from the Pmod.
+ *   - `pmod_latch`: Latch signal indicating the end of data transmission.
+ *
+ * Outputs:
+ *   - `data_reg`: Captured parallel data after shifting is complete.
+ */
+module gamepad_pmod_driver #(
+    parameter BIT_WIDTH = 24
+) (
+    input wire rst_n,
+    input wire clk,
+    input wire pmod_data,
+    input wire pmod_clk,
+    input wire pmod_latch,
+    output reg [BIT_WIDTH-1:0] data_reg
+);
 
-// XOR the feedback taps; positions are 16, 14, 13, and 11
-assign feedback = lfsr_reg[15] ^ lfsr_reg[13] ^ lfsr_reg[12] ^ lfsr_reg[10];
-assign rng = lfsr_reg[0]; // Output the LSB of the LFSR
+  reg pmod_clk_prev;
+  reg pmod_latch_prev;
+  reg [BIT_WIDTH-1:0] shift_reg;
 
-always @(posedge clk) begin
-  if (boot_reset) begin
-    // Set to a non-zero seed value when reset
-    lfsr_reg <= 16'b0001; // Non-zero seed
-  end else begin
-    // Shift left by one, then bring in the new feedback bit
-    lfsr_reg <= {lfsr_reg[14:0], feedback};
+  // Sync Pmod signals to the clk domain:
+  reg [1:0] pmod_data_sync;
+  reg [1:0] pmod_clk_sync;
+  reg [1:0] pmod_latch_sync;
+
+  always @(posedge clk) begin
+    if (~rst_n) begin
+      pmod_data_sync  <= 2'b0;
+      pmod_clk_sync   <= 2'b0;
+      pmod_latch_sync <= 2'b0;
+    end else begin
+      pmod_data_sync  <= {pmod_data_sync[0], pmod_data};
+      pmod_clk_sync   <= {pmod_clk_sync[0], pmod_clk};
+      pmod_latch_sync <= {pmod_latch_sync[0], pmod_latch};
+    end
   end
-end
 
-// --------------- ICON FOR LETTER "S" --------------------
-// --------------- ICON FOR LETTER "S" --------------------
-reg [7:0] icon1[0:7];
-initial begin
-  icon1[0] = 8'b00111100;  //     #### (no change needed)
-  icon1[1] = 8'b01111110;  //    ######
-  icon1[2] = 8'b00000110;  //    ##
-  icon1[3] = 8'b00011110;  //     ####
-  icon1[4] = 8'b00111100;  //      ###
-  icon1[5] = 8'b01100000;  //        ##
-  icon1[6] = 8'b01111110;  //    ######
-  icon1[7] = 8'b00111100;  //     ####
-end
+  always @(posedge clk) begin
+    if (~rst_n) begin
+      /* Initialize data and shift registers to all 1s so they're detected as "not present".
+       * This accounts for cases where we have:
+       *  - setup for 2 controllers;
+       *  - only a single controller is connected; and
+       *  - the driver in those cases only sends bits for a single controller.
+       */
+      data_reg <= {BIT_WIDTH{1'b1}};
+      shift_reg <= {BIT_WIDTH{1'b1}};
+      pmod_clk_prev <= 1'b0;
+      pmod_latch_prev <= 1'b0;
+    end
+    begin
+      pmod_clk_prev   <= pmod_clk_sync[1];
+      pmod_latch_prev <= pmod_latch_sync[1];
 
-// --------------- ICON FOR LETTER "J" --------------------
-reg [7:0] icon2[0:7];
-initial begin
-  icon2[0] = 8'b01111100;  // ######
-  icon2[1] = 8'b00010000;  //     #
-  icon2[2] = 8'b00010000;  //     #
-  icon2[3] = 8'b00010000;  //     #
-  icon2[4] = 8'b00010010;  // #   #
-  icon2[5] = 8'b00010010;  // #   #
-  icon2[6] = 8'b00011100;  //  ####
-  icon2[7] = 8'b00000000;  // (Empty)
-end
-// ----------------- PIXEL LOGIC FOR SELECTING ICON -------------------
-// Alternate between "S" (icon1) and "J" (icon2) based on the cell index (cell_index[0])
-  
-assign icon_pixel = (board_state[cell_index] == 1) ? 
-                    (cell_index[0] ? icon2[pix_y[2:0]][pix_x[2:0]] : icon1[pix_y[2:0]][pix_x[2:0]]) : 0; // Alternate based on cell index
+      // Capture data on rising edge of pmod_latch:
+      if (pmod_latch_sync[1] & ~pmod_latch_prev) begin
+        data_reg <= shift_reg;
+      end
 
-// ----------------- RGB SIGNAL GENERATION --------------------
-// For yellow color: set red and green to max, blue to 0
-assign R = (video_active & frame_active) ? {board_state[cell_index] & icon_pixel1, 1'b1} : 2'b11;  // Red
-assign G = (video_active & frame_active) ? {board_state[cell_index] & icon_pixel1, 1'b1} : 2'b11;  // Green
-assign B = 2'b00;  // Blue = 0, so it's yellow when combined with red and green
+      // Sample data on rising edge of pmod_clk:
+      if (pmod_clk_sync[1] & ~pmod_clk_prev) begin
+        shift_reg <= {shift_reg[BIT_WIDTH-2:0], pmod_data_sync[1]};
+      end
+    end
+  end
+
+endmodule
 
 
-// ----------------- VGA OUTPUT SIGNAL (uio_out) --------------------
-// Horizontal Flip for Column Index
-wire [2:0] flipped_pix_x;
-assign flipped_pix_x = {pix_x[0], pix_x[1], pix_x[2]};  // Reverse the bit order of pix_x
+/**
+ * gamepad_pmod_decoder -- Decodes raw data from the Gamepad Pmod.
+ *
+ * This module takes a 12-bit parallel data register (`data_reg`) 
+ * and decodes it into individual button states. It also determines
+ * whether a controller is connected.
+ *
+ * Functionality:
+ *   - If `data_reg` contains all `1's` (`0xFFF`), it indicates that no controller is connected.
+ *   - Otherwise, it extracts individual button states from `data_reg`.
+ *
+ * Inputs:
+ *   - `data_reg [11:0]`: Captured button state data from the gamepad.
+ *
+ * Outputs:
+ *   - `b, y, select, start, up, down, left, right, a, x, l, r`: Individual button states (`1` = pressed, `0` = released).
+ *   - `is_present`: Indicates whether a controller is connected (`1` = connected, `0` = not connected).
+ */
+module gamepad_pmod_decoder (
+    input wire [11:0] data_reg,
+    output wire b,
+    output wire y,
+    output wire select,
+    output wire start,
+    output wire up,
+    output wire down,
+    output wire left,
+    output wire right,
+    output wire a,
+    output wire x,
+    output wire l,
+    output wire r,
+    output wire is_present
+);
 
-// look up into the 8x8 icon bitmap for live cells
-wire icon_pixel1;
-assign icon_pixel1 = icon1[pix_y[2:0]][flipped_pix_x];  // Use flipped column index
+  // When the controller is not connected, the data register will be all 1's
+  wire reg_empty = (data_reg == 12'hfff);
+  assign is_present = reg_empty ? 0 : 1'b1;
+  assign {b, y, select, start, up, down, left, right, a, x, l, r} = reg_empty ? 0 : data_reg;
 
-wire icon_pixel2;
-assign icon_pixel2 = icon2[pix_y[2:0]][flipped_pix_x];  // Use flipped column index
-// Instead of 'video_out', use 'uo_out' (the actual VGA output) and pack the RGB signals
-assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};  // Assuming uo_out uses this format
+endmodule
 
-// goal for later idea with this is to have SJSU branded stuff so only can hope the best!
+
+/**
+ * gamepad_pmod_single -- Main interface for a single Gamepad Pmod controller.
+ * 
+ * This module provides button states for a **single controller**, reducing 
+ * resource usage (fewer flip-flops) compared to a dual-controller version.
+ * 
+ * Inputs:
+ *   - `pmod_data`, `pmod_clk`, and `pmod_latch` are the signals from the PMOD interface.
+ * 
+ * Outputs:
+ *   - Each button's state is provided as a single-bit wire (e.g., `start`, `up`, etc.).
+ *   - `is_present` indicates whether the controller is connected (`1` = connected, `0` = not detected).
+ */
+module gamepad_pmod_single (
+    input wire rst_n,
+    input wire clk,
+    input wire pmod_data,
+    input wire pmod_clk,
+    input wire pmod_latch,
+
+    output wire b,
+    output wire y,
+    output wire select,
+    output wire start,
+    output wire up,
+    output wire down,
+    output wire left,
+    output wire right,
+    output wire a,
+    output wire x,
+    output wire l,
+    output wire r,
+    output wire is_present
+);
+
+  wire [11:0] gamepad_pmod_data;
+
+  gamepad_pmod_driver #(
+      .BIT_WIDTH(12)
+  ) driver (
+      .rst_n(rst_n),
+      .clk(clk),
+      .pmod_data(pmod_data),
+      .pmod_clk(pmod_clk),
+      .pmod_latch(pmod_latch),
+      .data_reg(gamepad_pmod_data)
+  );
+
+  gamepad_pmod_decoder decoder (
+      .data_reg(gamepad_pmod_data),
+      .b(b),
+      .y(y),
+      .select(select),
+      .start(start),
+      .up(up),
+      .down(down),
+      .left(left),
+      .right(right),
+      .a(a),
+      .x(x),
+      .l(l),
+      .r(r),
+      .is_present(is_present)
+  );
+
+endmodule
+
+
+/**
+ * gamepad_pmod_dual -- Main interface for the Pmod gamepad.
+ * This module provides button states for two controllers using
+ * 2-bit vectors for each button (e.g., start[1:0], up[1:0], etc.).
+ * 
+ * Each button state is represented as a 2-bit vector:
+ *   - Index 0 corresponds to the first controller (e.g., up[0], y[0], etc.).
+ *   - Index 1 corresponds to the second controller (e.g., up[1], y[1], etc.).
+ *
+ * The `is_present` signal indicates whether a controller is connected:
+ *   - `is_present[0] == 1` when the first controller is connected.
+ *   - `is_present[1] == 1` when the second controller is connected.
+ *
+ * Inputs:
+ *   - `pmod_data`, `pmod_clk`, and `pmod_latch` are the 3 wires coming from the Pmod interface.
+ *
+ * Outputs:
+ *   - Button state vectors for each controller.
+ *   - Presence detection via `is_present`.
+ */
+module gamepad_pmod_dual (
+    input wire rst_n,
+    input wire clk,
+    input wire pmod_data,
+    input wire pmod_clk,
+    input wire pmod_latch,
+
+    output wire [1:0] b,
+    output wire [1:0] y,
+    output wire [1:0] select,
+    output wire [1:0] start,
+    output wire [1:0] up,
+    output wire [1:0] down,
+    output wire [1:0] left,
+    output wire [1:0] right,
+    output wire [1:0] a,
+    output wire [1:0] x,
+    output wire [1:0] l,
+    output wire [1:0] r,
+    output wire [1:0] is_present
+);
+
+  wire [23:0] gamepad_pmod_data;
+
+  gamepad_pmod_driver driver (
+      .rst_n(rst_n),
+      .clk(clk),
+      .pmod_data(pmod_data),
+      .pmod_clk(pmod_clk),
+      .pmod_latch(pmod_latch),
+      .data_reg(gamepad_pmod_data)
+  );
+
+  gamepad_pmod_decoder decoder1 (
+      .data_reg(gamepad_pmod_data[11:0]),
+      .b(b[0]),
+      .y(y[0]),
+      .select(select[0]),
+      .start(start[0]),
+      .up(up[0]),
+      .down(down[0]),
+      .left(left[0]),
+      .right(right[0]),
+      .a(a[0]),
+      .x(x[0]),
+      .l(l[0]),
+      .r(r[0]),
+      .is_present(is_present[0])
+  );
+
+  gamepad_pmod_decoder decoder2 (
+      .data_reg(gamepad_pmod_data[23:12]),
+      .b(b[1]),
+      .y(y[1]),
+      .select(select[1]),
+      .start(start[1]),
+      .up(up[1]),
+      .down(down[1]),
+      .left(left[1]),
+      .right(right[1]),
+      .a(a[1]),
+      .x(x[1]),
+      .l(l[1]),
+      .r(r[1]),
+      .is_present(is_present[1])
+  );
 
 endmodule
