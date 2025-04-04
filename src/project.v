@@ -47,56 +47,138 @@ module tt_um_vga_regol (
       .down(inp_down)
   );
 
-  reg [9:0] rect_y;
-  localparam [9:0] RECT_X_START = 100;
-  localparam [9:0] RECT_Y_START = 100;
-  localparam [9:0] RECT_WIDTH   = 20;
-  localparam [9:0] RECT_HEIGHT  = 100;
+// Ball movement variables
+    reg [9:0] ball_x;
+    reg [9:0] ball_y;
+    reg ball_dir_x;  // 0 = left, 1 = right
+    reg ball_dir_y;  // 0 = up, 1 = down
 
+    // Speed control (slows down the movement)
+    reg [20:0] counter;
 
-localparam MIN_Y = 10;   // Custom lower boundary
-localparam MAX_Y = 400;  // Custom upper boundary
-localparam STEP_SIZE = 100; // Smaller movement steps
-
-// Clock Divider for Smooth Paddle Movement
-reg [19:0] clk_divider;  // 20-bit counter for clock division
-reg slow_clk;  // Slower clock for movement
-
-always @(posedge clk) begin
-    clk_divider <= clk_divider + 1;
-    slow_clk <= clk_divider[15];  // Adjust this bit to change speed
-end
-
-// Paddle Position Logic (Step size = 1)
-always @(posedge slow_clk) begin
-    if (~rst_n) begin
-        rect_y <= MIN_Y;  // Start at the minimum boundary
-    end else begin
-        if (inp_up && rect_y > MIN_Y)  
-            rect_y <= rect_y - 1;  // Move up by 1
-        if (inp_down && rect_y < MAX_Y)  
-            rect_y <= rect_y + 1;  // Move down by 1
+    // Initialize ball position and direction
+    initial begin
+        ball_x = 320;
+        ball_y = 240;
+        ball_dir_x = 1; // Moving right initially
+        ball_dir_y = 1; // Moving down initially
+        counter = 0;
     end
-end
 
-  always @(posedge clk) begin
-    if (~rst_n) begin
-      R <= 0;
-      G <= 0;
-      B <= 0;
+    // Automatic ball movement logic
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        ball_x <= 320;
+        ball_y <= 240;
+        ball_dir_x <= 1;
+        ball_dir_y <= 1;
+        counter <= 0;
     end else begin
-      if (video_active) begin
-        if (pix_x >= RECT_X_START && pix_x < (RECT_X_START + RECT_WIDTH) &&
-            pix_y >= rect_y && pix_y < (rect_y + RECT_HEIGHT)) begin
-          {R, G, B} <= 6'b111111; // White rectangle
-        end else begin
-          {R, G, B} <= 6'b000000; // Black background
+        counter <= counter + 1;
+        if (counter >= 21'd50000) begin
+            counter <= 0;
+
+            // Move ball
+            if (ball_dir_x) 
+                ball_x <= ball_x + 1;
+            else 
+                ball_x <= ball_x - 1;
+
+            if (ball_dir_y) 
+                ball_y <= ball_y + 1;
+            else 
+                ball_y <= ball_y - 1;
+
+            // Screen-edge collisions
+            if (ball_x >= (640 - square_size)) 
+                ball_dir_x <= 0; // Bounce left
+            if (ball_x <= 1) 
+                ball_dir_x <= 1; // Bounce right
+            if (ball_y >= (480 - square_size)) 
+                ball_dir_y <= 0; // Bounce up
+            if (ball_y <= 1) 
+                ball_dir_y <= 1; // Bounce down
+
+            // === Ball-Paddle Collision === //
+            if (!ball_dir_x && 
+                (ball_x <= RECT_X_START + RECT_WIDTH) && 
+                (ball_x + square_size >= RECT_X_START) && 
+                (ball_y + square_size >= rect_y) && 
+                (ball_y <= rect_y + RECT_HEIGHT)) begin
+                ball_dir_x <= 1; // Bounce right
+            end
         end
-      end else begin
-        {R, G, B} <= 0;
-      end
     end
-  end
+end
+
+    // Square Ball Parameters
+    wire [9:0] square_size = 20; // Side length of square
+    wire [9:0] left_x = ball_x;
+    wire [9:0] right_x = ball_x + square_size;
+    wire [9:0] top_y = ball_y;
+    wire [9:0] bottom_y = ball_y + square_size;
+
+    // Check if the pixel is inside the square
+    wire inside_square = (pix_x >= left_x) && (pix_x <= right_x) &&
+                         (pix_y >= top_y) && (pix_y <= bottom_y);
+
+    // Paddle movement variables
+    reg [9:0] rect_y;
+    localparam [9:0] RECT_X_START = 100;
+    localparam [9:0] RECT_Y_START = 100;
+    localparam [9:0] RECT_WIDTH   = 20;
+    localparam [9:0] RECT_HEIGHT  = 100;
+
+    // Paddle Boundaries and Speed
+    localparam MIN_Y = 10;
+    localparam MAX_Y = 400;
+    reg [19:0] clk_divider;
+    reg slow_clk;
+
+    wire inp_up = ui_in[0];  // Paddle up input
+    wire inp_down = ui_in[1];  // Paddle down input
+
+    always @(posedge clk) begin
+        clk_divider <= clk_divider + 1;
+        slow_clk <= clk_divider[15];
+    end
+
+    always @(posedge slow_clk) begin
+        if (~rst_n) begin
+            rect_y <= MIN_Y;
+        end else begin
+            if (inp_up && rect_y > MIN_Y)  
+                rect_y <= rect_y - 1;
+            if (inp_down && rect_y < MAX_Y)  
+                rect_y <= rect_y + 1;
+        end
+    end
+
+    always @(posedge clk) begin
+        if (~rst_n) begin
+            R <= 0;
+            G <= 0;
+            B <= 0;
+        end else begin
+            if (video_active) begin
+                if (pix_x >= RECT_X_START && pix_x < (RECT_X_START + RECT_WIDTH) &&
+                    pix_y >= rect_y && pix_y < (rect_y + RECT_HEIGHT)) begin
+                    {R, G, B} <= 6'b111111;
+                end else if (inside_square) begin
+                    {R, G, B} <= 6'b111111;
+                end else begin
+                    {R, G, B} <= 6'b000000;
+                end
+            end else begin
+                {R, G, B} <= 0;
+            end
+        end
+    end
+
+    //ball and paddle collision
+
+
+
 
 endmodule
 
