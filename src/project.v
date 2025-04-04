@@ -66,7 +66,7 @@ assign icon_pixel = icon[pix_y[2:0]][pix_x[2:0]];
 
 // compute index into board state
 wire [10:0] cell_index;
-assign cell_index = (pix_y[7:3] << 6) | pix_x[8:3];
+assign cell_index = ({6'b0, pix_y[7:3]} << 6) | {5'b0, pix_x[8:3]};
 
 // generate RGB signals
 assign R = (video_active & frame_active) ? {board_state[cell_index] & icon_pixel, 1'b1} : 2'b00;
@@ -179,8 +179,8 @@ assign cell_y = index3[logWIDTH+logHEIGHT-1:logWIDTH];
 reg [3:0] neigh_index;                  // index of neighboring cell (0 to 7)
 reg [3:0] num_neighbors;                // number of neighbors of current cell
 
-localparam HEIGHT_MASK = {logHEIGHT{1'b1}};
-localparam WIDTH_MASK = {logWIDTH{1'b1}};
+localparam [31:0] HEIGHT_MASK = (1 << logHEIGHT) - 1;
+localparam [31:0] WIDTH_MASK  = (1 << logWIDTH) - 1;
 
 always @(posedge clk) begin
   if (boot_reset) begin
@@ -189,73 +189,69 @@ always @(posedge clk) begin
     neigh_index <= 0;
     num_neighbors <= 0;
   end else if (action == ACTION_UPDATE && !action_update_complete) begin
-    // loop over the 8 neighbors of the current cell
-    case (neigh_index)
-      0: begin // (-1, +1)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 1) & HEIGHT_MASK) << logWIDTH | ((cell_x - 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
+   case (neigh_index)
+  0: begin // (-1, +1)
+    num_neighbors <= num_neighbors + {3'b000, board_state[(((32'($unsigned(cell_y)) + 1) & HEIGHT_MASK) << logWIDTH) | ((32'($unsigned(cell_x)) - 1) & WIDTH_MASK)]};
+    neigh_index <= neigh_index + 1;
+  end
 
-      1: begin // (0, +1)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 1) & HEIGHT_MASK) << logWIDTH | ((cell_x + 0) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1; 
-      end
+  1: begin // (0, +1)
+    num_neighbors <= num_neighbors + {3'b000, board_state[(((32'($unsigned(cell_y)) + 1) & HEIGHT_MASK) << logWIDTH) | ((32'($unsigned(cell_x)) + 0) & WIDTH_MASK)]};
+    neigh_index <= neigh_index + 1;
+  end
 
-      2: begin // (+1, +1)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 1) & HEIGHT_MASK) << logWIDTH | ((cell_x + 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
+  2: begin // (+1, +1)
+    num_neighbors <= num_neighbors + {3'b000, board_state[(((32'($unsigned(cell_y)) + 1) & HEIGHT_MASK) << logWIDTH) | ((32'($unsigned(cell_x)) + 1) & WIDTH_MASK)]};
+    neigh_index <= neigh_index + 1;
+  end
 
-      3: begin // (-1, 0)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 0) & HEIGHT_MASK) << logWIDTH | ((cell_x - 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
+  3: begin // (-1, 0)
+    num_neighbors <= num_neighbors + {3'b000, board_state[(((32'($unsigned(cell_y)) + 0) & HEIGHT_MASK) << logWIDTH) | ((32'($unsigned(cell_x)) - 1) & WIDTH_MASK)]};
+    neigh_index <= neigh_index + 1;
+  end
 
-      4: begin // (+1, 0)
-        num_neighbors <= num_neighbors + board_state[((cell_y + 0) & HEIGHT_MASK) << logWIDTH | ((cell_x + 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
+  4: begin // (+1, 0)
+    num_neighbors <= num_neighbors + {3'b000, board_state[(((32'($unsigned(cell_y)) + 0) & HEIGHT_MASK) << logWIDTH) | ((32'($unsigned(cell_x)) + 1) & WIDTH_MASK)]};
+    neigh_index <= neigh_index + 1;
+  end
 
-      5: begin // (-1, -1)
-        num_neighbors <= num_neighbors + board_state[((cell_y - 1) & HEIGHT_MASK) << logWIDTH | ((cell_x - 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
+  5: begin // (-1, -1)
+    num_neighbors <= num_neighbors + {3'b000, board_state[(((32'($unsigned(cell_y)) - 1) & HEIGHT_MASK) << logWIDTH) | ((32'($unsigned(cell_x)) - 1) & WIDTH_MASK)]};
+    neigh_index <= neigh_index + 1;
+  end
 
-      6: begin // (0, -1)
-        num_neighbors <= num_neighbors + board_state[((cell_y - 1) & HEIGHT_MASK) << logWIDTH | ((cell_x + 0) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
+  6: begin // (0, -1)
+    num_neighbors <= num_neighbors + {3'b000, board_state[(((32'($unsigned(cell_y)) - 1) & HEIGHT_MASK) << logWIDTH) | ((32'($unsigned(cell_x)) + 0) & WIDTH_MASK)]};
+    neigh_index <= neigh_index + 1;
+  end
 
-      7: begin // (+1, -1)
-        num_neighbors <= num_neighbors + board_state[((cell_y - 1) & HEIGHT_MASK) << logWIDTH | ((cell_x + 1) & WIDTH_MASK)];
-        neigh_index <= neigh_index + 1;
-      end
+  7: begin // (+1, -1)
+    num_neighbors <= num_neighbors + {3'b000, board_state[(((32'($unsigned(cell_y)) - 1) & HEIGHT_MASK) << logWIDTH) | ((32'($unsigned(cell_x)) + 1) & WIDTH_MASK)]};
+    neigh_index <= neigh_index + 1;
+  end
 
-      // this state (neigh_index = 8) is used to compute the new state of the current cell
-      // according to the rules of Conway's Game of Life
-      8: begin
-        board_state_next[index3] <= (board_state[index3] && (num_neighbors == 2)) | (num_neighbors == 3);
+  8: begin
+    board_state_next[index3] <= (board_state[index3] && (num_neighbors == 4'd2)) || (num_neighbors == 4'd3);
+    neigh_index <= 0;
+    num_neighbors <= 0;
 
-        neigh_index <= 0;
-        num_neighbors <= 0;
+    if (index3 < BOARD_SIZE - 1)
+      index3 <= index3 + 1;
+    else begin
+      index3 <= 0;
+      action_update_complete <= 1;
+    end
+  end
 
-        // advance to next cell to be updated, or terminate
-        if (index3 < BOARD_SIZE - 1) begin
-          index3 <= index3 + 1;
-        end else begin
-          index3 <= 0;
-          action_update_complete <= 1;
-        end
-      end
-
-      default: begin
-        neigh_index <= 0;
-      end
-    endcase
+  default: begin
+    neigh_index <= 0;
+  end
+endcase
   end else begin
     action_update_complete <= 0;
-  end 
+  end
 end
+
 
 
 // --------------- ACTION: COPY NEW SIMULATION STATE OVER OLD ONE --------------------
