@@ -8,7 +8,8 @@
 `default_nettype none
 `include "hvsync_generator.v"
 
-module tt_um_vga_regol(
+
+module tt_um_vga_example(
   input  wire [7:0] ui_in,    // Dedicated inputs
   output wire [7:0] uo_out,   // Dedicated outputs
   input  wire [7:0] uio_in,   // IOs: Input path
@@ -57,27 +58,27 @@ hvsync_generator hvsync_gen(
   .vpos(pix_y)
 );
 
-// high when the pixel belongs to the simulation rectangle
+// Smaller simulation rectangle dimensions
 wire frame_active;
-assign frame_active = (pix_x >= 64 && pix_x < 640-64 && pix_y >= 112 && pix_y < 480-112) ? 1 : 0;
+assign frame_active = (pix_x >= 128 && pix_x < 640-128 && pix_y >= 160 && pix_y < 480-160) ? 1 : 0;
 
-// look up into the 8x8 icon bitmap for live cells
+// look up into the 8x8 icon bitmap for live cells (unchanged)
 wire icon_pixel;
 assign icon_pixel = icon[pix_y[2:0]][pix_x[2:0]];
 
-// compute index into board state
-wire [10:0] cell_index;
-assign cell_index = ({6'b0, pix_y[7:3]} << 6) | {5'b0, pix_x[8:3]};
+// compute index into board state - reduced to 32x32 grid (instead of 64x64)
+wire [9:0] cell_index;  // Reduced from 11 bits to 10 bits (5 bits for x, 5 bits for y)
+assign cell_index = ({6'b0, pix_y[6:3]} << 5) | {5'b0, pix_x[7:3]};
 
-// generate RGB signals
-assign R = (video_active & frame_active) ? {board_state[cell_index] & icon_pixel, 1'b1} : 2'b00;
-assign G = (video_active & frame_active) ? {board_state[cell_index] & icon_pixel, 1'b1} : 2'b00;
+// generate RGB signals (unchanged)
+assign R = (video_active & frame_active) ? {board_state[1+cell_index] & icon_pixel, 1'b1} : 2'b00;
+assign G = (video_active & frame_active) ? {board_state[1+cell_index] & icon_pixel, 1'b1} : 2'b00;
 assign B = 2'b01;
   
-// clock
+// clock (unchanged)
 localparam CLOCK_FREQ = 24000000;
 
-// reset
+// reset (unchanged)
 wire boot_reset;
 assign boot_reset = ~rst_n;
 
