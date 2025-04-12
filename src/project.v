@@ -58,34 +58,51 @@ hvsync_generator hvsync_gen(
   .vpos(pix_y)
 );
 
-// Smaller simulation rectangle dimensions
+// Smaller simulation rectangle dimensions (shrink active area)
 wire frame_active;
-assign frame_active = (pix_x >= 128 && pix_x < 640-128 && pix_y >= 160 && pix_y < 480-160) ? 1 : 0;
+assign frame_active = (pix_x >= 192 && pix_x < 448 && pix_y >= 224 && pix_y < 416) ? 1 : 0;
 
-// look up into the 8x8 icon bitmap for live cells (unchanged)
+// 8x8 icon bitmap lookup (unchanged)
 wire icon_pixel;
 assign icon_pixel = icon[pix_y[2:0]][pix_x[2:0]];
 
-// compute index into board state - reduced to 32x32 grid (instead of 64x64)
-wire [9:0] cell_index;  // Reduced from 11 bits to 10 bits (5 bits for x, 5 bits for y)
-assign cell_index = ({6'b0, pix_y[6:3]} << 5) | {5'b0, pix_x[7:3]};
+// Compute index into board state - reduced to 16x16 grid (4 bits for x and y)
+wire [7:0] cell_index;
+assign cell_index = ({4'b0, pix_y[6:3]} << 4) | {4'b0, pix_x[6:3]};
 
-// generate RGB signals (unchanged)
+// Generate RGB signals (unchanged logic, but operates on smaller board)
 assign R = (video_active & frame_active) ? {board_state[1+cell_index] & icon_pixel, 1'b1} : 2'b00;
 assign G = (video_active & frame_active) ? {board_state[1+cell_index] & icon_pixel, 1'b1} : 2'b00;
 assign B = 2'b01;
-  
-// clock (unchanged)
-localparam CLOCK_FREQ = 24000000;
 
-// reset (unchanged)
+// Clock and Reset (unchanged)
+localparam CLOCK_FREQ = 24000000;
+wire boot_reset;
+assign boot_reset = ~rst_n;// Simulation frame area (centered, 256x192 pixels)
+wire frame_active;
+assign frame_active = (pix_x >= 192 && pix_x < 448 && pix_y >= 224 && pix_y < 416);
+
+// 8x8 icon bitmap lookup
+wire icon_pixel;
+assign icon_pixel = icon[pix_y[2:0]][pix_x[2:0]];
+
+// Compute index into board state (16x16 grid: 4 bits for x, 4 bits for y)
+wire [7:0] cell_index;
+assign cell_index = ({4'b0, pix_y[6:3]} << 4) | {4'b0, pix_x[6:3]};
+
+// Generate RGB signals
+assign R = (video_active & frame_active) ? {board_state[1 + cell_index] & icon_pixel, 1'b1} : 2'b00;
+assign G = (video_active & frame_active) ? {board_state[1 + cell_index] & icon_pixel, 1'b1} : 2'b00;
+assign B = 2'b01;
+
+// Clock and Reset
 wire boot_reset;
 assign boot_reset = ~rst_n;
 
 
 // ----------------- SIMULATION PARAMS -------------------------
 
-localparam logWIDTH = 6, logHEIGHT = 5;         // 64x32 board
+localparam logWIDTH = 4, logHEIGHT = 4;         // 16x16 board
 localparam UPDATE_INTERVAL = CLOCK_FREQ / 10;   // 5 Hz simulation update
 
 localparam WIDTH = 2 ** logWIDTH;
