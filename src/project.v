@@ -58,30 +58,6 @@ hvsync_generator hvsync_gen(
   .vpos(pix_y)
 );
 
-// Smaller simulation rectangle dimensions (shrink active area)
-wire frame_active;
-assign frame_active = (pix_x >= 192 && pix_x < 448 && pix_y >= 224 && pix_y < 416) ? 1 : 0;
-
-// 8x8 icon bitmap lookup (unchanged)
-wire icon_pixel;
-assign icon_pixel = icon[pix_y[2:0]][pix_x[2:0]];
-
-// Compute index into board state - reduced to 16x16 grid (4 bits for x and y)
-wire [7:0] cell_index;
-assign cell_index = ({4'b0, pix_y[6:3]} << 4) | {4'b0, pix_x[6:3]};
-
-// Generate RGB signals (unchanged logic, but operates on smaller board)
-assign R = (video_active & frame_active) ? {board_state[1+cell_index] & icon_pixel, 1'b1} : 2'b00;
-assign G = (video_active & frame_active) ? {board_state[1+cell_index] & icon_pixel, 1'b1} : 2'b00;
-assign B = 2'b01;
-
-// Clock and Reset (unchanged)
-localparam CLOCK_FREQ = 24000000;
-wire boot_reset;
-assign boot_reset = ~rst_n;// Simulation frame area (centered, 256x192 pixels)
-wire frame_active;
-assign frame_active = (pix_x >= 192 && pix_x < 448 && pix_y >= 224 && pix_y < 416);
-
 // 8x8 icon bitmap lookup
 wire icon_pixel;
 assign icon_pixel = icon[pix_y[2:0]][pix_x[2:0]];
@@ -94,8 +70,13 @@ assign cell_index = ({4'b0, pix_y[6:3]} << 4) | {4'b0, pix_x[6:3]};
 assign R = (video_active & frame_active) ? {board_state[1 + cell_index] & icon_pixel, 1'b1} : 2'b00;
 assign G = (video_active & frame_active) ? {board_state[1 + cell_index] & icon_pixel, 1'b1} : 2'b00;
 assign B = 2'b01;
-
-
+  
+// Clock and Reset (unchanged)
+localparam CLOCK_FREQ = 24000000;
+wire boot_reset;
+assign boot_reset = ~rst_n;// Simulation frame area (centered, 256x192 pixels)
+wire frame_active;
+assign frame_active = (pix_x >= 192 && pix_x < 448 && pix_y >= 224 && pix_y < 416);
 
 // ----------------- SIMULATION PARAMS -------------------------
 
