@@ -80,7 +80,7 @@ assign frame_active = (pix_x >= 192 && pix_x < 448 && pix_y >= 224 && pix_y < 41
 
 // ----------------- SIMULATION PARAMS -------------------------
 
-localparam logWIDTH = 4, logHEIGHT = 4;         // 16x16 board
+localparam logWIDTH = 3, logHEIGHT = 4;         // 16x16 board
 localparam UPDATE_INTERVAL = CLOCK_FREQ / 10;   // 5 Hz simulation update
 
 localparam WIDTH = 2 ** logWIDTH;
