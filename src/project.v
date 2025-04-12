@@ -95,23 +95,6 @@ assign R = (video_active & frame_active) ? {board_state[1 + cell_index] & icon_p
 assign G = (video_active & frame_active) ? {board_state[1 + cell_index] & icon_pixel, 1'b1} : 2'b00;
 assign B = 2'b01;
 
-// Clock and Reset
-wire boot_reset;
-assign boot_reset = ~rst_n;
-
-
-// ----------------- SIMULATION PARAMS -------------------------
-
-localparam logWIDTH = 4, logHEIGHT = 4;         // 16x16 board
-localparam UPDATE_INTERVAL = CLOCK_FREQ / 10;   // 5 Hz simulation update
-
-localparam WIDTH = 2 ** logWIDTH;
-localparam HEIGHT = 2 ** logHEIGHT;
-localparam BOARD_SIZE = WIDTH * HEIGHT;
-
-reg board_state [0:BOARD_SIZE-1];         // current state of the simulation
-reg board_state_next [0:BOARD_SIZE-1];    // next state of the simulation
-
 
 // ----------------- SIMULATION CONTROL LOGIC --------------------
 
